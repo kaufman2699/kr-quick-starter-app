@@ -9,8 +9,8 @@ A starter kit + Claude skill that automates everything *around* your React app s
 ## ⚡ Quick start (3 commands)
 
 ```bash
-npx degit your-username/rapid-react-skill/template my-app
-cd my-app && npm install
+npx degit kaufman2699/kr-quick-starter-app my-dashboard
+cd rapid-react-skill/template && npm install
 npm run dev
 ```
 
@@ -32,7 +32,7 @@ The deploy scripts handle building, generating `manifest.json`, zipping, and upl
 
 - **Node.js 18+** ([install](https://nodejs.org/))
 - **Git** ([install](https://git-scm.com/downloads))
-- For Domo deploys: `npm install -g ryuu-cli` then `domo login` (one-time)
+- For Domo deploys: `npm install -g ryuu` then `domo login` (one-time)
 - For GH Pages deploys: a GitHub repo with Pages enabled
 
 ---
