@@ -5,86 +5,118 @@
  *   npm run deploy:domo
  *
  * What it does:
- *   1. Verifies ryuu-cli is installed (the Domo Custom App CLI).
- *   2. Generates manifest.json if it doesn't exist (UUID, name, sizing).
- *   3. Runs `vite build` to produce dist/.
- *   4. Copies manifest.json into dist/.
- *   5. Invokes `domo publish` to ship to your Domo instance.
+ *   1. Verifies the Domo CLI (ryuu) is installed.
+ *   2. Verifies manifest.json exists and has a real Domo-assigned design ID.
+ *   3. Verifies thumbnail.png exists (Domo requires it).
+ *   4. Runs `vite build` to produce dist/.
+ *   5. Copies manifest.json and thumbnail.png into dist/.
+ *   6. Invokes `domo publish` to ship to your Domo instance.
  *
  * One-time prerequisites the user must do themselves:
- *   - npm install -g ryuu-cli
- *   - domo login   (authenticates against your Domo instance)
+ *   - npm install -g ryuu
+ *   - domo login
+ *   - domo init    (in a throwaway folder, to register a new design on Domo's
+ *                   server and get a REAL design ID — then paste that ID into
+ *                   this project's manifest.json)
  *
- * The script is intentionally chatty: it prints what it's doing so a first-time
- * user understands the steps. Errors include actionable next-step messages.
+ * Why we don't auto-generate the design ID:
+ *   Design IDs are assigned by Domo's server when you run `domo init`. A
+ *   client-side random UUID will fail with "you do not have access to the
+ *   design" because Domo can't find it.
  */
 
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, copyFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, '..');
 const manifestPath = join(projectRoot, 'manifest.json');
+const thumbnailPath = join(projectRoot, 'thumbnail.png');
 const distDir = join(projectRoot, 'dist');
-const distManifest = join(distDir, 'manifest.json');
 
 const log = (msg) => console.log(`\x1b[36m[deploy:domo]\x1b[0m ${msg}`);
-const warn = (msg) => console.warn(`\x1b[33m[deploy:domo]\x1b[0m ${msg}`);
 const die = (msg) => {
   console.error(`\x1b[31m[deploy:domo]\x1b[0m ${msg}`);
   process.exit(1);
 };
 
-// On Windows, globally-installed npm CLIs are .cmd shims, so spawnSync needs
-// shell:true to resolve them via PATHEXT. Setting it unconditionally works on
-// all platforms.
+// shell:true so domo.cmd (Windows) and domo (mac/linux) both resolve via PATH.
 const SPAWN_OPTS = { shell: true };
 
-// --- 1. Check ryuu-cli is installed -----------------------------------------
+// --- 1. Check ryuu is installed ---------------------------------------------
 function checkRyuu() {
   const probe = spawnSync('domo', ['--version'], { ...SPAWN_OPTS, encoding: 'utf8' });
   if (probe.error || probe.status !== 0) {
     die(
-      'The Domo CLI (ryuu-cli) is not installed or not on PATH.\n' +
+      'The Domo CLI (ryuu) is not installed or not on PATH.\n' +
         '  Fix:\n' +
-        '    1. npm install -g ryuu-cli\n' +
+        '    1. npm install -g ryuu\n' +
         '    2. domo login\n' +
         '  Then re-run: npm run deploy:domo'
     );
   }
-  log(`Found Domo CLI: ${probe.stdout.trim()}`);
+  log('Domo CLI detected.');
 }
 
-// --- 2. Generate manifest.json if missing -----------------------------------
-function ensureManifest() {
-  if (existsSync(manifestPath)) {
-    log('manifest.json found — reusing.');
-    return JSON.parse(readFileSync(manifestPath, 'utf8'));
+// --- 2. Verify manifest.json exists and has a real design ID ----------------
+function checkManifest() {
+  if (!existsSync(manifestPath)) {
+    die(
+      'manifest.json is missing.\n' +
+        '\n' +
+        '  Domo requires a real, server-assigned design ID — you cannot generate\n' +
+        '  one yourself. One-time setup:\n' +
+        '\n' +
+        '    1. cd /tmp && mkdir domo-init && cd domo-init\n' +
+        '    2. domo init        (answer the prompts; you only need the ID)\n' +
+        '    3. cat manifest.json  → copy the "id" value\n' +
+        '    4. Back in your project, create manifest.json with that id:\n' +
+        '       {\n' +
+        '         "id": "PASTE-ID-HERE",\n' +
+        '         "name": "My App",\n' +
+        '         "version": "1.0.0",\n' +
+        '         "sizing": { "width": 1200, "height": 800 },\n' +
+        '         "mapping": []\n' +
+        '       }\n' +
+        '\n' +
+        '  Then re-run: npm run deploy:domo'
+    );
   }
-
-  log('No manifest.json found — generating one with defaults.');
-  const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'));
-  const manifest = {
-    id: randomUUID(),
-    name: pkg.name || 'Rapid React App',
-    version: pkg.version || '1.0.0',
-    sizing: { width: 1200, height: 800 },
-    mapping: [],
-    // Add datasets here later as: { "alias": "sales", "dataSetId": "<uuid>" }
-  };
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-  log(`Wrote manifest.json (id: ${manifest.id}).`);
-  warn(
-    'IMPORTANT: do not change the "id" field — it ties future deploys to the\n' +
-      '  same app in Domo. Changing it creates a duplicate app.'
-  );
-  return manifest;
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  } catch (e) {
+    die(`manifest.json is not valid JSON: ${e.message}`);
+  }
+  if (!manifest.id || !/^[0-9a-f-]{32,}$/i.test(manifest.id)) {
+    die(
+      'manifest.json has no valid "id". You need a real design ID from Domo.\n' +
+        '  Run `domo init` in a throwaway folder, copy the generated id, and paste\n' +
+        '  it into this project\'s manifest.json. See instructions above.'
+    );
+  }
+  log(`Manifest OK (id: ${manifest.id}).`);
 }
 
-// --- 3. Build ----------------------------------------------------------------
+// --- 3. Verify thumbnail.png exists -----------------------------------------
+function checkThumbnail() {
+  if (!existsSync(thumbnailPath)) {
+    die(
+      'thumbnail.png is missing from the project root.\n' +
+        '  Domo requires a 300x300 PNG named thumbnail.png. The template ships one;\n' +
+        '  if you deleted it, generate or download any 300x300 image and save it\n' +
+        '  as thumbnail.png at the project root.\n' +
+        '\n' +
+        '  Quick placeholder:\n' +
+        '    curl -o thumbnail.png "https://placehold.co/300x300/0f172a/ffffff.png?text=App"'
+    );
+  }
+  log('thumbnail.png found.');
+}
+
+// --- 4. Build ---------------------------------------------------------------
 function build() {
   log('Building with Vite...');
   try {
@@ -94,19 +126,17 @@ function build() {
   }
 }
 
-// --- 4. Copy manifest into dist ---------------------------------------------
-function stageManifest() {
+// --- 5. Stage manifest + thumbnail in dist/ ---------------------------------
+function stageAssets() {
   if (!existsSync(distDir)) die('dist/ was not produced. Build likely failed silently.');
-  copyFileSync(manifestPath, distManifest);
-  log('Copied manifest.json into dist/.');
+  copyFileSync(manifestPath, join(distDir, 'manifest.json'));
+  copyFileSync(thumbnailPath, join(distDir, 'thumbnail.png'));
+  log('Staged manifest.json and thumbnail.png in dist/.');
 }
 
-// --- 5. Publish to Domo -----------------------------------------------------
+// --- 6. Publish to Domo -----------------------------------------------------
 function publish() {
   log('Publishing to Domo...');
-  // ryuu-cli's `domo publish` looks at the current directory's manifest.json
-  // and uploads the bundle. We run it from dist/ so it picks up our staged
-  // manifest and the built assets together.
   const result = spawnSync('domo', ['publish'], {
     ...SPAWN_OPTS,
     cwd: distDir,
@@ -114,20 +144,22 @@ function publish() {
   });
   if (result.status !== 0) {
     die(
-      'domo publish failed.\n' +
+      'domo publish failed (see output above).\n' +
         '  Common causes:\n' +
-        '    - Not logged in: run `domo login` and try again.\n' +
-        '    - Wrong instance: `domo login --server <your-instance>.domo.com`.\n' +
-        '    - Network/proxy issue: check VPN and try again.'
+        '    - Auth expired: run `domo login` again.\n' +
+        '    - Wrong instance: `domo login -i <your-instance>.domo.com`.\n' +
+        '    - Design ID belongs to a different instance/account than you logged in to.\n' +
+        '    - Network/proxy issue: check VPN.'
     );
   }
   log('✅ Deployed to Domo.');
   log('Find your app under Apps → Custom Apps in your Domo instance.');
 }
 
-// --- Run ---------------------------------------------------------------------
+// --- Run --------------------------------------------------------------------
 checkRyuu();
-ensureManifest();
+checkManifest();
+checkThumbnail();
 build();
-stageManifest();
+stageAssets();
 publish();
