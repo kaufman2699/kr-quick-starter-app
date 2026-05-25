@@ -82,7 +82,7 @@ Clone this repo into your Claude Code skills directory or point Claude at the `S
 ### One-time setup
 
 ```bash
-npm install -g ryuu-cli
+npm install -g ryuu
 domo login       # log in with your Domo instance
 ```
 
