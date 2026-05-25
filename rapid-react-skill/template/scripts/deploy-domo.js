@@ -202,7 +202,7 @@ function publish() {
       'domo publish failed (see output above).\n' +
         '  Common causes:\n' +
         '    - Auth expired: run `domo login` again, then re-run.\n' +
-        '    - Wrong instance: `domo login -i <your-instance>.domo.com`.\n' +
+        '    - Wrong instance: `domo login -i kaufmanrossin-dev.domo.com`.\n' +
         '    - Network/proxy issue: check VPN.'
     );
   }
