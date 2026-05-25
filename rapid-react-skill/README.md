@@ -16,13 +16,34 @@ npm run dev
 
 That's it. You now have a running React + Vite + Tailwind app at `http://localhost:5173`.
 
-When you're done building, ship it:
+---
+
+## Deploying to Domo
+
+### One-time setup
 
 ```bash
-npm run deploy:domo        # to Domo as a Custom App
-# or
-npm run deploy:gh          # to GitHub Pages
+npm install -g ryuu-cli
+domo login       # log in with your Domo instance
 ```
+
+### Every deploy
+
+```bash
+npm run deploy:domo
+```
+
+What happens behind the scenes:
+1. `vite build` produces optimized output in `dist/`.
+2. `scripts/deploy-domo.js` creates `manifest.json` if missing (UUID, name, sizing, mapping all auto-filled with sensible defaults).
+3. The `dist/` folder is published via `domo publish`.
+4. You get a link to your live app in Domo.
+
+The first deploy will prompt for `Domo Instance URL` and `App name` — after that they're remembered.
+
+See [`references/domo-deployment.md`](references/domo-deployment.md) for advanced options (datasets, OAuth scopes, custom sizing).
+
+---
 
 The deploy scripts handle building, generating `manifest.json`, zipping, and uploading. You don't write any of that.
 
@@ -75,34 +96,6 @@ Claude will use this skill end-to-end.
 
 Clone this repo into your Claude Code skills directory or point Claude at the `SKILL.md` directly.
 
----
-
-## Deploying to Domo
-
-### One-time setup
-
-```bash
-npm install -g ryuu-cli
-domo login       # log in with your Domo instance
-```
-
-### Every deploy
-
-```bash
-npm run deploy:domo
-```
-
-What happens behind the scenes:
-1. `vite build` produces optimized output in `dist/`.
-2. `scripts/deploy-domo.js` creates `manifest.json` if missing (UUID, name, sizing, mapping all auto-filled with sensible defaults).
-3. The `dist/` folder is published via `domo publish`.
-4. You get a link to your live app in Domo.
-
-The first deploy will prompt for `Domo Instance URL` and `App name` — after that they're remembered.
-
-See [`references/domo-deployment.md`](references/domo-deployment.md) for advanced options (datasets, OAuth scopes, custom sizing).
-
----
 
 ## Deploying to GitHub Pages
 
