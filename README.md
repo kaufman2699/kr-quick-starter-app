@@ -10,7 +10,7 @@ A starter kit + Claude skill that automates everything *around* your React app s
 
 ```bash
 npx degit kaufman2699/kr-quick-starter-app my-dashboard
-cd rapid-react-skill/template && npm install
+cd my-dashboard/rapid-react-skill/template && npm install
 npm run dev
 ```
 
