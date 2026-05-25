@@ -21,7 +21,16 @@
  */
 
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  copyFileSync,
+  mkdtempSync,
+  rmSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,18 +76,23 @@ function bootstrapManifest() {
   const appName = pkg.name || 'rapid-react-app';
 
   const tmpRoot = mkdtempSync(join(tmpdir(), 'domo-bootstrap-'));
-  const initSubdir = 'app';
 
   try {
-    // Try non-interactive init. Flags per ryuu docs:
+    // Try non-interactive init. Flags per ryuu v5 docs:
     //   -n  app name
-    //   -t  template ("manifest-only" is the most minimal)
+    //   -t  template ("manifest only" — the space requires quoting)
     //   --no-datasets  skip the dataset prompts
-    const initResult = spawnSync(
-      'domo',
-      ['init', initSubdir, '-n', appName, '-t', 'manifest-only', '--no-datasets'],
-      { ...SPAWN_OPTS, cwd: tmpRoot, stdio: 'inherit', timeout: 60_000 }
-    );
+    //
+    // Note: ryuu v5 does NOT accept a positional project-name argument; it
+    // creates the project in the current directory. We pass the whole command
+    // as a single string so shell:true preserves the quoted template name.
+    const initCmd = `domo init -n "${appName}" -t "manifest only" --no-datasets`;
+    const initResult = spawnSync(initCmd, {
+      shell: true,
+      cwd: tmpRoot,
+      stdio: 'inherit',
+      timeout: 60_000,
+    });
 
     if (initResult.status !== 0) {
       die(
@@ -96,30 +110,48 @@ function bootstrapManifest() {
       );
     }
 
-    const initManifestPath = join(tmpRoot, initSubdir, 'manifest.json');
-    if (!existsSync(initManifestPath)) {
+    // domo init creates the project either in tmpRoot directly OR in a
+    // subdirectory named after `-n`. Scan to find manifest.json wherever it
+    // landed — robust to CLI version differences.
+    function findManifest(root) {
+      if (existsSync(join(root, 'manifest.json'))) {
+        return join(root, 'manifest.json');
+      }
+      for (const entry of readdirSync(root)) {
+        const sub = join(root, entry);
+        if (statSync(sub).isDirectory()) {
+          const candidate = join(sub, 'manifest.json');
+          if (existsSync(candidate)) return candidate;
+        }
+      }
+      return null;
+    }
+
+    const initManifestPath = findManifest(tmpRoot);
+    if (!initManifestPath) {
       die(
-        '`domo init` did not produce a manifest.json. Cannot continue automatically.\n' +
-          '  Try the manual fallback (see above).'
+        '`domo init` reported success but no manifest.json was found in the\n' +
+          '  generated project. This may be a Domo CLI version mismatch.\n' +
+          '  Try: npm install -g ryuu@latest, then re-run npm run deploy:domo'
       );
     }
 
+    // Per Domo's CLI: design IDs are NOT assigned by `domo init` — they're
+    // assigned by the first `domo publish`. So the manifest from init will
+    // have an empty or missing id field. That's expected. We copy the manifest
+    // verbatim (to inherit whatever fields the current ryuu version expects)
+    // and overlay our own name/sizing/version.
     const initManifest = JSON.parse(readFileSync(initManifestPath, 'utf8'));
-    if (!initManifest.id) {
-      die('`domo init` produced a manifest without an id field.');
-    }
-
-    // Write OUR manifest with the Domo-assigned id. Keep our own name/sizing.
     const ourManifest = {
-      id: initManifest.id,
+      ...initManifest,
       name: appName,
       version: pkg.version || '1.0.0',
       sizing: { width: 1200, height: 800 },
-      mapping: [],
+      mapping: initManifest.mapping || [],
     };
     writeFileSync(manifestPath, JSON.stringify(ourManifest, null, 2) + '\n');
-    log(`✓ Registered new design (id: ${initManifest.id}).`);
-    log('  manifest.json written. Commit it — future deploys reuse this id.');
+    log('✓ manifest.json created. Design ID will be assigned on first publish.');
+    log('  Commit manifest.json — future deploys reuse this design.');
   } finally {
     // Always clean up the temp folder.
     try {
@@ -141,14 +173,12 @@ function ensureManifest() {
   } catch (e) {
     die(`manifest.json is not valid JSON: ${e.message}`);
   }
-  if (!manifest.id || !/^[0-9a-f-]{32,}$/i.test(manifest.id)) {
-    // Manifest exists but id is bad — delete and re-bootstrap.
-    log('manifest.json exists but has an invalid id. Re-registering with Domo...');
-    rmSync(manifestPath);
-    bootstrapManifest();
-    return;
+  if (!manifest.id) {
+    log('manifest.json exists with no id yet — that\'s normal pre-first-publish.');
+    log('  domo publish will assign one and write it back.');
+  } else {
+    log(`Manifest OK (id: ${manifest.id}).`);
   }
-  log(`Manifest OK (id: ${manifest.id}).`);
 }
 
 // --- 3. Verify thumbnail.png exists -----------------------------------------
@@ -206,6 +236,25 @@ function publish() {
         '    - Network/proxy issue: check VPN.'
     );
   }
+
+  // After first publish, Domo assigns an id and writes it back to the manifest
+  // in dist/. Sync it to the project root so future deploys skip the bootstrap.
+  try {
+    const distManifestPath = join(distDir, 'manifest.json');
+    if (existsSync(distManifestPath)) {
+      const distManifest = JSON.parse(readFileSync(distManifestPath, 'utf8'));
+      const rootManifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      if (distManifest.id && distManifest.id !== rootManifest.id) {
+        rootManifest.id = distManifest.id;
+        writeFileSync(manifestPath, JSON.stringify(rootManifest, null, 2) + '\n');
+        log(`✓ Synced assigned design id to manifest.json (id: ${distManifest.id}).`);
+        log('  Commit manifest.json now to lock this design id for future deploys.');
+      }
+    }
+  } catch {
+    // Non-fatal — the publish itself succeeded.
+  }
+
   log('✅ Deployed to Domo.');
   log('Find your app under Apps → Custom Apps in your Domo instance.');
 }
