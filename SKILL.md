@@ -33,7 +33,7 @@ If the user asks for something that requires editing the "do not touch" list, do
 Check the current directory. If it's not already a project scaffolded from this template (look for `src/App.jsx` and our `scripts/deploy-domo.js`), scaffold one:
 
 ```bash
-npx degit your-username/rapid-react-skill/template <app-name>
+npx degit kaufman2699/kr-quick-starter-app/rapid-react-skill/template <app-name>
 cd <app-name>
 npm install
 ```
@@ -71,12 +71,29 @@ Ask the user where to deploy — Domo or GitHub Pages. Don't assume.
 ```bash
 npm run deploy:domo
 ```
-Prerequisites: `ryuu-cli` installed globally and `domo login` completed. If the deploy script reports either is missing, walk the user through installation:
-```bash
-npm install -g ryuu-cli
-domo login
-```
-The first deploy generates `manifest.json` automatically. See `references/domo-deployment.md` for advanced manifest options (datasets, OAuth scopes, sizing).
+
+Prerequisites the user must satisfy before this works:
+1. `npm install -g ryuu` (the Domo CLI; the binary is `domo`).
+2. `domo login` to authenticate against their Domo instance.
+3. A valid design ID in `manifest.json`. Domo assigns this — it cannot be generated client-side. **If `manifest.json` is missing or has no real ID, walk the user through this once:**
+   ```bash
+   cd /tmp && mkdir domo-init && cd domo-init
+   domo init
+   cat manifest.json   # copy the id
+   ```
+   Then in their project, create `manifest.json` with that id:
+   ```json
+   {
+     "id": "PASTE-ID-HERE",
+     "name": "App Name",
+     "version": "1.0.0",
+     "sizing": { "width": 1200, "height": 800 },
+     "mapping": []
+   }
+   ```
+4. A 300×300 `thumbnail.png` at the project root. The template ships one; if it's missing, generate or download any 300×300 PNG.
+
+The deploy script checks all of these and gives clear error messages if any are missing. See `references/domo-deployment.md` for advanced manifest options (datasets, OAuth scopes, sizing).
 
 **For GitHub Pages:**
 ```bash
@@ -93,7 +110,8 @@ The script handles building and pushing to a `gh-pages` branch. The user must en
 
 ## Things that commonly trip people up
 
-- **Domo manifest `id`**: must be a stable UUID across deploys for the same app. The deploy script handles this — never regenerate it manually or you'll create a duplicate app in Domo.
+- **Domo manifest `id`**: assigned by Domo's server via `domo init`. Never edit, regenerate, or invent UUIDs for this field. A wrong ID will fail with "you do not have access to the design" because it doesn't exist on Domo's servers.
+- **Domo thumbnail.png**: required, 300×300 PNG, in project root. The template ships with a default. Don't delete it.
 - **GitHub Pages base path**: if the repo is at `user.github.io/repo-name`, `vite.config.js` needs `base: '/repo-name/'`. The GH Pages deploy script sets this automatically based on the `package.json` `name` field, but verify if the live site shows broken assets.
 - **`.env` secrets**: the template's `.env.example` shows the expected vars. Never commit `.env`. Domo Custom Apps inject `window.domo` at runtime — no client-side secrets needed for Domo data access.
 - **Platform-aware commands**: when telling the user to run shell commands, check whether they're on Windows. If so, use PowerShell-compatible syntax (`Remove-Item`, `Get-Content`, `Set-Content`, `Compress-Archive`) instead of `rm`, `sed`, `grep`, `zip`. The npm/npx/git commands work identically on all platforms. The deploy scripts themselves are cross-platform — they detect the OS and shell out correctly.
